@@ -14,5 +14,6 @@ done
 export TEST_SERVER_URL="http://127.0.0.1:$(cat "$PORT_FILE")"
 xcrun swiftc -swift-version 5 -framework AppKit -framework ImageIO \
   "$PROJECT_DIR/Sources/ImageSource.swift" "$PROJECT_DIR/Sources/ImageLoader.swift" \
+  "$PROJECT_DIR/Sources/ImageEditor.swift" \
   "$PROJECT_DIR/Tests/main.swift" -o "$PROJECT_DIR/build/viewer-tests"
 "$PROJECT_DIR/build/viewer-tests"

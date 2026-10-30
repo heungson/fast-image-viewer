@@ -1,6 +1,6 @@
 # Fast Image Viewer
 
-A small native macOS app for opening images from a pasted file path or a direct image URL. Built with Swift and AppKit; no Electron, web server, or third-party dependencies.
+A small native macOS app for opening images from a pasted file path or a direct image URL. Built with Swift and AppKit; no Electron, web server, or third-party dependencies. The compact dark workspace groups markup tools above the image, with zoom and file information in the footer. Lavender selection states, focus outlines, and hover feedback use a consistent visual style. The transparency checkerboard appears only behind the image.
 
 ## Use it
 
@@ -43,6 +43,21 @@ Closing the window keeps the app running for its global shortcut. After quitting
 
 Fit mode preserves the aspect ratio and avoids enlarging small images. At **100%**, each image pixel uses one physical screen pixel, including on Retina screens. Large images can be scrolled; transparency appears over a checkerboard. Animated GIFs use the native image view.
 
+## Edit and mark an image
+
+The icon toolbar above the preview includes **Pen**, **Arrow**, **Box**, **Oval**, **Text**, and **Crop**. Hover over an icon to see its name and keyboard shortcut. Pick a tool, then draw directly on the image. Set the color and line width before adding a mark. Text has a separate size control and appears where you click.
+
+**Select** lets you move or delete individual marks: click a mark, drag it to move it, or press Delete to remove it. Dragging empty space in Select mode pans a zoomed image. The tool keys V, P, A, R, O, T, and C work while the image canvas has focus; they do not interrupt typing an address or text label.
+
+For cropping, drag a rectangle and click **Apply Crop** or press Return. The rotate button turns the image 90° clockwise. Cropping and rotating flatten the current marks into the new bitmap; undo restores the previous editable marks.
+
+- **Command–Z / Shift–Command–Z:** undo / redo edits. The toolbar undo buttons always affect image edits; keyboard undo affects text while a text field is focused.
+- **Command–S / Export…:** save an edited copy as PNG or JPEG. The default name ends in `-edited.png`; choose `.jpg` for JPEG. PNG preserves transparency; JPEG uses a white background. Exporting to the original source filename is blocked.
+- **Shift–Command–C:** copy the image, including all marks, to the clipboard as PNG.
+- **Escape:** cancel a crop, selection, or active marking tool before hiding the window.
+
+Edits are held in memory until exported. Opening a different image or quitting with unsaved edits offers **Keep Editing**, **Discard Edits**, or **Export…**. Closing the window preserves the current session. Animated images remain animated for viewing, but editing and exporting use the first frame. Undo retains up to 50 steps, with a memory budget for previous crop/rotation bitmaps.
+
 ## Build and install
 
 Requires macOS 13 or later and Xcode Command Line Tools with Swift. Builds for the current Mac’s architecture.
@@ -66,7 +81,7 @@ open -a "$HOME/Applications/Fast Image Viewer.app" "/absolute/path/to/image.png"
 ./scripts/test.sh
 ```
 
-Tests cover source parsing, paths with spaces, quotes and home expansion, file URLs, query preservation, decoding and metadata, missing files, folders, invalid data, HTTP downloads and errors, download size limits, and cancellation. The HTTP fixtures run only on loopback using Python 3’s standard library.
+Tests cover source parsing, paths with spaces, quotes and home expansion, file URLs, query preservation, decoding and metadata, missing files, folders, invalid data, HTTP downloads and errors, download size limits, and cancellation. Editor checks verify source-coordinate rendering, mark movement and deletion, undo/redo and saved revisions, top-left crop coordinates, clockwise rotation direction, orientation handling, PNG transparency, and JPEG output. The HTTP fixtures run only on loopback using Python 3’s standard library.
 
 The live app was also checked with local paths, encoded file URLs, a public HTTPS WebP image, zooming, and missing-file feedback.
 
@@ -80,5 +95,9 @@ Images use the formats supported by macOS ImageIO, including PNG, JPEG, HEIC, TI
 
 - `Sources/ImageSource.swift`: address parsing and user-facing errors.
 - `Sources/ImageLoader.swift`: local and HTTP loading, bounded downloads, decoding, and cancellation.
+- `Sources/ImageEditor.swift`: editable marks, image transformations, bounded undo history, rendering, and export.
+- `Sources/EditorUI.swift`: editing toolbar, text labels, save/copy actions, and unsaved-edit prompts.
+- `Sources/WindowLayout.swift`: compact window layout, address bar, canvas, and footer.
+- `Sources/Appearance.swift`: shared button styles, icon tool picker, and app badge.
 - `Sources/main.swift`: native window, image canvas, menus, keyboard controls, and global shortcut.
 - `scripts/`: build, installation, native app icon, and deterministic test fixtures.

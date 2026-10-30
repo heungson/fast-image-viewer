@@ -107,5 +107,73 @@ if let base = ProcessInfo.processInfo.environment["TEST_SERVER_URL"] {
     while Date() < until { _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
     check(!called, "Cancelled request does not replace the current image")
 }
+// Use distinct top/bottom colors to detect flipped crops and rotations, not just size changes.
+let context = try ImageEditor.context(width: 100, height: 60)
+context.setFillColor(NSColor.blue.cgColor); context.fill(CGRect(x: 0, y: 0, width: 100, height: 60))
+context.setFillColor(NSColor.green.cgColor); context.fill(CGRect(x: 0, y: 30, width: 100, height: 30))
+let baseImage = context.makeImage()!
+func pixel(_ image: CGImage, x: Int, y: Int) throws -> [UInt8] {
+    let normalized = try ImageEditor.context(width: image.width, height: image.height)
+    normalized.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    let data = normalized.data!.assumingMemoryBound(to: UInt8.self)
+    let offset = y * normalized.bytesPerRow + x * 4
+    return Array(UnsafeBufferPointer(start: data + offset, count: 4))
+}
+let editor = ImageEditor(image: baseImage)
+check(!editor.isDirty && !editor.canUndo, "Fresh editor has no unsaved changes")
+let box = ImageMark(tool: .rectangle, points: [CGPoint(x: 10, y: 10), CGPoint(x: 80, y: 45)], color: .red, width: 4)
+editor.add(box)
+check(editor.isDirty && editor.canUndo, "Adding a mark is undoable and dirty")
+let markedImage = try ImageEditor.render(editor.state)
+let edge = try pixel(markedImage, x: 10, y: 20)
+check(edge[0] > 240 && edge[1] < 10 && edge[2] < 10, "Marks are rendered at source pixel coordinates")
+editor.undo()
+check(!editor.isDirty && editor.state.marks.isEmpty && editor.canRedo, "Undo restores original and clean state")
+editor.redo()
+check(editor.state.marks.count == 1 && editor.isDirty, "Redo restores marks")
+let savedRevision = editor.state.id
+editor.markExported(savedRevision)
+check(!editor.isDirty, "Exported revision is clean")
+editor.replaceMark(at: 0, with: box.moved(by: CGPoint(x: 2, y: 3)))
+check(editor.state.marks[0].points[0] == CGPoint(x: 12, y: 13) && editor.isDirty, "Marks can move independently")
+editor.undo(); check(!editor.isDirty, "Undo to exported revision is clean")
+editor.removeMark(at: 0); check(editor.state.marks.isEmpty, "Selected mark can be deleted")
+editor.undo(); check(editor.state.marks.count == 1, "Delete can be undone")
+
+let cropEditor = ImageEditor(image: baseImage)
+try cropEditor.crop(to: CGRect(x: 5, y: 3, width: 20, height: 15))
+check(cropEditor.state.base.width == 20 && cropEditor.state.base.height == 15, "Crop dimensions")
+let topPixel = try pixel(cropEditor.state.base, x: 5, y: 5)
+check(topPixel[1] > 240 && topPixel[2] < 10, "Crop uses the top-left image coordinate system")
+cropEditor.undo()
+check(cropEditor.state.base.width == 100 && !cropEditor.isDirty, "Crop undo restores full image")
+do { try cropEditor.crop(to: CGRect(x: -20, y: -20, width: 2, height: 2)); check(false, "Reject outside crop") }
+catch { check(true, "Outside crop rejected") }
+do { try cropEditor.crop(to: CGRect(x: 5, y: 5, width: 1, height: 1)); check(false, "Reject tiny crop") }
+catch { check(true, "Tiny crop rejected") }
+try cropEditor.rotateClockwise()
+check(cropEditor.state.base.width == 60 && cropEditor.state.base.height == 100, "Rotate swaps dimensions")
+let right = try pixel(cropEditor.state.base, x: 50, y: 50)
+let left = try pixel(cropEditor.state.base, x: 10, y: 50)
+check(right[1] > 240 && left[2] > 240, "Clockwise rotation places original top edge on the right")
+cropEditor.undo()
+check(cropEditor.state.base.width == 100 && !cropEditor.isDirty, "Rotate undo restores original")
+
+let transparent = try ImageEditor.context(width: 40, height: 30).makeImage()!
+let transparentEditor = ImageEditor(image: transparent)
+let transparentPNG = try ImageEditor.export(transparentEditor.state)
+let decodedPNG = try ImageEditor(data: transparentPNG, maxDimension: 40)
+check(try pixel(decodedPNG.state.base, x: 10, y: 10)[3] == 0, "PNG preserves transparency")
+let opaqueJPEG = try ImageEditor.export(transparentEditor.state, jpeg: true)
+let decodedJPEG = try ImageEditor(data: opaqueJPEG, maxDimension: 40)
+let white = try pixel(decodedJPEG.state.base, x: 10, y: 10)
+check(white[0] > 240 && white[1] > 240 && white[2] > 240, "JPEG flattens transparency onto white")
+let arrowEditor = ImageEditor(image: transparent)
+arrowEditor.add(ImageMark(tool: .arrow, points: [CGPoint(x: 5, y: 5), CGPoint(x: 32, y: 23)], color: .red, width: 2))
+let arrowPNG = try ImageEditor.export(arrowEditor.state)
+check(try ImageLoader.decode(arrowPNG).width == 40, "Arrow export produces valid image data")
+let orientedEditor = try ImageEditor(data: jpeg as Data, maxDimension: 640)
+check(orientedEditor.state.base.width == 360 && orientedEditor.state.base.height == 640, "Editor normalizes EXIF orientation")
+
 print("\(checks - failures)/\(checks) checks passed")
 exit(failures == 0 ? 0 : 1)

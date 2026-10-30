@@ -10,12 +10,12 @@ extension NSColor {
 }
 
 enum Palette {
-    static let background = NSColor(hex: 0x16191F)
-    static let surface = NSColor(hex: 0x20242D)
-    static let muted = NSColor(hex: 0x969EAE)
-    static let text = NSColor(hex: 0xF0F2F7)
-    static let accent = NSColor(hex: 0xADA1FF)
-    static let border = NSColor(hex: 0x343A46)
+    static let background = NSColor(hex: 0x1A1C23)
+    static let surface = NSColor(hex: 0x23262F)
+    static let muted = NSColor(hex: 0xA0A4B5)
+    static let text = NSColor(hex: 0xF2F0F8)
+    static let accent = NSColor(hex: 0xBCA9FF)
+    static let border = NSColor(hex: 0x363944)
 }
 
 func label(_ text: String, size: CGFloat = 12, weight: NSFont.Weight = .regular,
@@ -39,6 +39,7 @@ final class AddressField: NSTextField {
 
 final class ImageDocument: NSView {
     let imageView = NSImageView()
+    let markup = MarkupView()
     override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
@@ -46,19 +47,38 @@ final class ImageDocument: NSView {
         imageView.imageScaling = .scaleAxesIndependently
         imageView.animates = true
         addSubview(imageView)
+        addSubview(markup)
     }
     required init?(coder: NSCoder) { fatalError() }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(hex: 0x11141A).setFill()
+        NSColor(hex: 0x12141A).setFill()
         dirtyRect.fill()
-        let tile: CGFloat = 16
-        NSColor(hex: 0x171B22).setFill()
-        for row in Int(floor(dirtyRect.minY / tile))...Int(ceil(dirtyRect.maxY / tile)) {
-            for col in Int(floor(dirtyRect.minX / tile))...Int(ceil(dirtyRect.maxX / tile)) where (row + col) % 2 == 0 {
-                NSRect(x: CGFloat(col) * tile, y: CGFloat(row) * tile, width: tile, height: tile).fill()
+        let spacing: CGFloat = 24
+        NSColor.white.withAlphaComponent(0.045).setFill()
+        for row in Int(floor(dirtyRect.minY / spacing))...Int(ceil(dirtyRect.maxY / spacing)) {
+            for col in Int(floor(dirtyRect.minX / spacing))...Int(ceil(dirtyRect.maxX / spacing)) {
+                NSBezierPath(ovalIn: NSRect(x: CGFloat(col) * spacing, y: CGFloat(row) * spacing, width: 1, height: 1)).fill()
             }
         }
+        guard imageView.image != nil else { return }
+        let photo = imageView.frame
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow(); shadow.shadowBlurRadius = 20
+        shadow.shadowOffset = NSSize(width: 0, height: -4); shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
+        shadow.set(); NSColor(hex: 0x20232B).setFill(); photo.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        let visible = dirtyRect.intersection(photo)
+        guard !visible.isEmpty else { return }
+        NSGraphicsContext.saveGraphicsState(); photo.clip()
+        let tile: CGFloat = 12
+        NSColor(hex: 0x272A32).setFill()
+        for row in Int(floor((visible.minY - photo.minY) / tile))...Int(ceil((visible.maxY - photo.minY) / tile)) {
+            for col in Int(floor((visible.minX - photo.minX) / tile))...Int(ceil((visible.maxX - photo.minX) / tile)) where (row + col) % 2 == 0 {
+                NSRect(x: photo.minX + CGFloat(col) * tile, y: photo.minY + CGFloat(row) * tile, width: tile, height: tile).fill()
+            }
+        }
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
 
@@ -66,11 +86,13 @@ final class ImageCanvas: NSView {
     let scroll = NSScrollView()
     let document = ImageDocument(frame: .zero)
     let emptyState = NSStackView()
-    let emptyTitle = label("An image, one paste away.", size: 23, weight: .semibold)
-    let emptyDetail = label("Paste a file path or image URL above, then press Return.", size: 13, color: Palette.muted)
+    let emptyTitle = label("Open an image to begin", size: 24, weight: .semibold)
+    let emptyDetail = label("Paste a path or URL above, or drop an image here.", size: 13, color: Palette.muted)
     let emptyIcon = NSImageView()
     var onDrop: ((String) -> Void)?
     var onZoomChanged: ((CGFloat) -> Void)?
+    var onEdit: (() -> Void)?
+    var editor: ImageEditor? { document.markup.editor }
     var pixelSize = NSSize.zero
     var zoom: CGFloat = 1
     var fits = true
@@ -79,8 +101,8 @@ final class ImageCanvas: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = 12
-        layer?.borderColor = Palette.border.cgColor
+        layer?.cornerRadius = 14
+        layer?.borderColor = Palette.border.withAlphaComponent(0.7).cgColor
         layer?.borderWidth = 1
         layer?.masksToBounds = true
         scroll.drawsBackground = false
@@ -91,8 +113,11 @@ final class ImageCanvas: NSView {
         scroll.documentView = document
         addSubview(scroll)
 
-        emptyIcon.image = symbol("photo.on.rectangle.angled", size: 42)
+        emptyIcon.image = symbol("photo.on.rectangle.angled", size: 32)
         emptyIcon.contentTintColor = Palette.accent
+        emptyIcon.wantsLayer = true
+        emptyIcon.layer?.backgroundColor = Palette.accent.withAlphaComponent(0.075).cgColor
+        emptyIcon.layer?.cornerRadius = 18
         emptyIcon.setFrameSize(NSSize(width: 64, height: 64))
         emptyState.orientation = .vertical
         emptyState.alignment = .centerX
@@ -100,7 +125,7 @@ final class ImageCanvas: NSView {
         emptyState.addArrangedSubview(emptyIcon)
         emptyState.addArrangedSubview(emptyTitle)
         emptyState.addArrangedSubview(emptyDetail)
-        let dropHint = label("You can also drop an image here", size: 12, color: Palette.muted)
+        let dropHint = label("⌘O  Browse files     ·     ⇧⌘V  Open clipboard", size: 11, color: Palette.muted.withAlphaComponent(0.7))
         emptyState.addArrangedSubview(dropHint)
         emptyState.setCustomSpacing(24, after: emptyDetail)
         addSubview(emptyState)
@@ -132,6 +157,23 @@ final class ImageCanvas: NSView {
         centerImage()
     }
 
+    func beginEditing(_ editor: ImageEditor) {
+        document.markup.editor = editor
+        editor.onChange = { [weak self, weak editor] in
+            guard let self = self, let editor = editor, self.editor === editor else { return }
+            let size = editor.state.size
+            let changedSize = self.pixelSize != size
+            self.pixelSize = size
+            self.document.imageView.image = NSImage(cgImage: editor.state.base, size: size)
+            if changedSize { self.fits = true; self.document.markup.resetInteraction() }
+            self.updateImageFrame()
+            if changedSize { self.centerImage() }
+            self.document.markup.needsDisplay = true
+            self.onEdit?()
+        }
+        onEdit?()
+    }
+
     func placeholder(title: String, detail: String, isError: Bool = false) {
         emptyTitle.stringValue = title
         emptyDetail.stringValue = detail
@@ -142,6 +184,9 @@ final class ImageCanvas: NSView {
         emptyIcon.image = symbol(isError ? "exclamationmark.triangle" : "photo.on.rectangle.angled", size: 42)
         emptyIcon.contentTintColor = isError ? .systemOrange : Palette.accent
         emptyState.isHidden = false
+        document.markup.editor = nil
+        document.markup.tool = .select
+        document.markup.isHidden = true
         document.imageView.image = nil
         pixelSize = .zero
         document.frame = scroll.contentView.bounds
@@ -184,6 +229,10 @@ final class ImageCanvas: NSView {
         document.setFrameSize(full)
         document.imageView.frame = NSRect(x: (full.width - size.width) / 2, y: (full.height - size.height) / 2,
                                           width: size.width, height: size.height)
+        document.markup.frame = document.imageView.frame
+        document.markup.bounds = NSRect(origin: .zero, size: pixelSize)
+        document.markup.isHidden = editor == nil
+        document.needsDisplay = true
         onZoomChanged?(zoom * (window?.backingScaleFactor ?? 1))
     }
 
@@ -231,7 +280,7 @@ enum Shortcut: Int, CaseIterable {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFieldDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFieldDelegate, NSMenuItemValidation {
     var window: NSWindow!
     let address = AddressField()
     let canvas = ImageCanvas(frame: .zero)
@@ -239,10 +288,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
     let metadata = label("LOCAL FILES & WEB IMAGES", size: 10, weight: .medium, color: Palette.muted)
     let zoomLabel = label("100%", size: 11, weight: .medium, color: Palette.muted)
     let shortcutLabel = label("", size: 11, weight: .medium, color: Palette.muted)
-    let openButton = NSButton(title: "Open image", target: nil, action: nil)
-    let revealButton = NSButton(title: "Reveal in Finder", target: nil, action: nil)
+    let openButton = ChromeButton(title: "Open", target: nil, action: nil)
+    let revealButton = ChromeButton(title: "", target: nil, action: nil)
+    var addressShell: NSView?
     let spinner = NSProgressIndicator()
     var zoomControls: [NSButton] = []
+    let toolPicker = IconToolPicker()
+    let colorWell = NSColorWell()
+    let strokePicker = NSPopUpButton()
+    let textSizePicker = NSPopUpButton()
+    let editHint = label("Open an image to use the editing tools.", size: 11, color: Palette.muted)
+    let exportButton = ChromeButton(title: "Export…", target: nil, action: nil)
+    let applyCropButton = ChromeButton(title: "Apply Crop", target: nil, action: nil)
+    let cancelCropButton = ChromeButton(title: "Cancel", target: nil, action: nil)
+    var undoButton: NSButton!
+    var redoButton: NSButton!
+    var editControls: [NSControl] = []
+    var isExporting = false
+    var originalMetadata = ""
     var source: ImageSource?
     var loader: ImageLoader?
     var loadID = UUID()
@@ -270,7 +333,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
                 self.openClipboard(nil)
                 return nil
             }
-            if event.keyCode == UInt16(kVK_Escape) { self.cancelOrHide(); return nil }
+            if event.keyCode == UInt16(kVK_Escape) {
+                if !self.canvas.document.markup.cancelInteraction() { self.cancelOrHide() }
+                return nil
+            }
             return event
         }
         registerShortcut()
@@ -279,161 +345,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
         if let first = args.first, first != "--smoke-test" { openAddress(first) }
     }
 
-    func makeWindow() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 760),
-                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Fast Image Viewer"
-        window.titlebarAppearsTransparent = true
-        window.backgroundColor = Palette.background
-        window.minSize = NSSize(width: 760, height: 570)
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.setFrameAutosaveName("ViewerWindow")
-        window.center()
-        let root = NSView()
-        root.wantsLayer = true
-        root.layer?.backgroundColor = Palette.background.cgColor
-        window.contentView = root
-
-        let appIcon = NSImageView()
-        appIcon.image = symbol("photo.stack", size: 27)
-        appIcon.contentTintColor = Palette.accent
-        let title = label("Fast Image Viewer", size: 19, weight: .semibold)
-        let subtitle = label("A direct route to your images.", size: 12, color: Palette.muted)
-        let addressLabel = label("IMAGE ADDRESS", size: 10, weight: .semibold, color: Palette.muted)
-        address.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        address.textColor = Palette.text
-        address.backgroundColor = Palette.surface
-        address.isBezeled = false
-        address.focusRingType = .none
-        address.placeholderAttributedString = NSAttributedString(string: "/path/to/image.png  or  https://example.com/image.jpg",
-                                                                  attributes: [.foregroundColor: Palette.muted])
-        address.cell?.usesSingleLineMode = true
-        address.cell?.isScrollable = true
-        address.target = self
-        address.action = #selector(openFromField)
-        address.delegate = self
-        address.escape = { [weak self] in self?.cancelOrHide() }
-        address.setAccessibilityLabel("Image file path or URL")
-
-        let inputShell = NSView()
-        inputShell.wantsLayer = true
-        inputShell.layer?.backgroundColor = Palette.surface.cgColor
-        inputShell.layer?.cornerRadius = 9
-        inputShell.layer?.borderColor = Palette.border.cgColor
-        inputShell.layer?.borderWidth = 1
-        let linkIcon = NSImageView()
-        linkIcon.image = symbol("link", size: 16)
-        linkIcon.contentTintColor = Palette.muted
-        inputShell.addSubview(linkIcon)
-        inputShell.addSubview(address)
-        configure(openButton, action: #selector(openFromField), prominent: true)
-        openButton.keyEquivalent = ""
-        openButton.toolTip = "Open address (Return)"
-        inputShell.addSubview(openButton)
-        let hint = label("File paths, file:// addresses, and direct image URLs", size: 11, color: Palette.muted)
-        let browse = NSButton(title: "Browse files…", target: self, action: #selector(browseFiles))
-        configure(browse, action: #selector(browseFiles))
-        browse.image = symbol("folder", size: 12)
-        browse.imagePosition = .imageLeading
-        browse.toolTip = "Choose an image (⌘O)"
-
-        let previewLabel = label("PREVIEW", size: 10, weight: .semibold, color: Palette.muted)
-        let minus = iconButton("minus", action: #selector(zoomOut), tooltip: "Zoom out (⌘−)")
-        let plus = iconButton("plus", action: #selector(zoomIn), tooltip: "Zoom in (⌘+)")
-        let fit = NSButton(title: "Fit", target: self, action: #selector(fitImage))
-        configure(fit, action: #selector(fitImage))
-        fit.toolTip = "Fit image in window (⌘0)"
-        let actual = NSButton(title: "100%", target: self, action: #selector(actualSize))
-        configure(actual, action: #selector(actualSize))
-        actual.toolTip = "One image pixel per screen pixel (⌘1)"
-        zoomControls = [minus, plus, fit, actual]
-        zoomControls.forEach { $0.isEnabled = false }
-        zoomLabel.alignment = .center
-        let tools = NSStackView(views: [minus, zoomLabel, plus, fit, actual])
-        tools.orientation = .horizontal
-        tools.spacing = 8
-        tools.alignment = .centerY
-        configure(revealButton, action: #selector(revealFile))
-        revealButton.image = symbol("arrow.up.forward.square", size: 11)
-        revealButton.imagePosition = .imageTrailing
-        revealButton.isHidden = true
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isDisplayedWhenStopped = false
-
-        let views: [NSView] = [appIcon, title, subtitle, shortcutLabel, addressLabel, inputShell, hint, browse,
-                               previewLabel, tools, canvas, spinner, stateLabel, metadata, revealButton]
-        views.forEach { root.addSubview($0); $0.translatesAutoresizingMaskIntoConstraints = false }
-        [address, linkIcon, openButton].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
-        NSLayoutConstraint.activate([
-            appIcon.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 28),
-            appIcon.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
-            appIcon.widthAnchor.constraint(equalToConstant: 36), appIcon.heightAnchor.constraint(equalToConstant: 40),
-            title.leadingAnchor.constraint(equalTo: appIcon.trailingAnchor, constant: 12),
-            title.topAnchor.constraint(equalTo: appIcon.topAnchor),
-            subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor), subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
-            shortcutLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -28),
-            shortcutLabel.centerYAnchor.constraint(equalTo: appIcon.centerYAnchor),
-            addressLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 28),
-            addressLabel.topAnchor.constraint(equalTo: appIcon.bottomAnchor, constant: 27),
-            inputShell.topAnchor.constraint(equalTo: addressLabel.bottomAnchor, constant: 10),
-            inputShell.leadingAnchor.constraint(equalTo: addressLabel.leadingAnchor),
-            inputShell.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -28),
-            inputShell.heightAnchor.constraint(equalToConstant: 48),
-            linkIcon.leadingAnchor.constraint(equalTo: inputShell.leadingAnchor, constant: 14),
-            linkIcon.centerYAnchor.constraint(equalTo: inputShell.centerYAnchor), linkIcon.widthAnchor.constraint(equalToConstant: 18),
-            address.leadingAnchor.constraint(equalTo: linkIcon.trailingAnchor, constant: 10),
-            address.centerYAnchor.constraint(equalTo: inputShell.centerYAnchor), address.heightAnchor.constraint(equalToConstant: 22),
-            address.trailingAnchor.constraint(equalTo: openButton.leadingAnchor, constant: -12),
-            openButton.trailingAnchor.constraint(equalTo: inputShell.trailingAnchor, constant: -7),
-            openButton.centerYAnchor.constraint(equalTo: inputShell.centerYAnchor),
-            openButton.widthAnchor.constraint(equalToConstant: 115), openButton.heightAnchor.constraint(equalToConstant: 34),
-            hint.leadingAnchor.constraint(equalTo: addressLabel.leadingAnchor), hint.topAnchor.constraint(equalTo: inputShell.bottomAnchor, constant: 10),
-            browse.trailingAnchor.constraint(equalTo: inputShell.trailingAnchor), browse.centerYAnchor.constraint(equalTo: hint.centerYAnchor),
-            browse.widthAnchor.constraint(equalToConstant: 116), browse.heightAnchor.constraint(equalToConstant: 24),
-            hint.trailingAnchor.constraint(lessThanOrEqualTo: browse.leadingAnchor, constant: -8),
-            previewLabel.leadingAnchor.constraint(equalTo: addressLabel.leadingAnchor),
-            previewLabel.topAnchor.constraint(equalTo: hint.bottomAnchor, constant: 30),
-            tools.trailingAnchor.constraint(equalTo: inputShell.trailingAnchor), tools.centerYAnchor.constraint(equalTo: previewLabel.centerYAnchor),
-            tools.heightAnchor.constraint(equalToConstant: 26), zoomLabel.widthAnchor.constraint(equalToConstant: 48),
-            canvas.leadingAnchor.constraint(equalTo: addressLabel.leadingAnchor), canvas.trailingAnchor.constraint(equalTo: inputShell.trailingAnchor),
-            canvas.topAnchor.constraint(equalTo: previewLabel.bottomAnchor, constant: 17),
-            canvas.bottomAnchor.constraint(equalTo: stateLabel.topAnchor, constant: -16),
-            spinner.leadingAnchor.constraint(equalTo: addressLabel.leadingAnchor), spinner.centerYAnchor.constraint(equalTo: stateLabel.centerYAnchor),
-            spinner.widthAnchor.constraint(equalToConstant: 14), spinner.heightAnchor.constraint(equalToConstant: 14),
-            stateLabel.leadingAnchor.constraint(equalTo: spinner.trailingAnchor, constant: 8),
-            stateLabel.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -17),
-            stateLabel.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, multiplier: 0.42),
-            metadata.centerXAnchor.constraint(equalTo: root.centerXAnchor), metadata.centerYAnchor.constraint(equalTo: stateLabel.centerYAnchor),
-            metadata.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, multiplier: 0.33),
-            revealButton.trailingAnchor.constraint(equalTo: inputShell.trailingAnchor), revealButton.centerYAnchor.constraint(equalTo: stateLabel.centerYAnchor),
-            revealButton.heightAnchor.constraint(equalToConstant: 24)
-        ])
-        canvas.onDrop = { [weak self] in self?.openAddress($0) }
-        canvas.onZoomChanged = { [weak self] in self?.zoomLabel.stringValue = "\(Int(($0 * 100).rounded()))%" }
-        window.initialFirstResponder = address
-    }
-
     func configure(_ button: NSButton, action: Selector, prominent: Bool = false) {
         button.target = self
         button.action = action
         button.bezelStyle = .rounded
         button.isBordered = false
         button.wantsLayer = true
-        button.layer?.cornerRadius = 6
+        button.layer?.cornerRadius = 8
         button.font = .systemFont(ofSize: 12, weight: prominent ? .semibold : .medium)
         button.contentTintColor = prominent ? NSColor(hex: 0x201A3A) : Palette.muted
-        if prominent { button.layer?.backgroundColor = Palette.accent.cgColor }
+        (button as? ChromeButton)?.style = prominent ? .primary : .quiet
     }
 
     func iconButton(_ name: String, action: Selector, tooltip: String) -> NSButton {
-        let button = NSButton(image: symbol(name)!, target: self, action: action)
+        let button = ChromeButton(image: symbol(name)!, target: self, action: action)
         configure(button, action: action)
         button.toolTip = tooltip
         button.setAccessibilityLabel(tooltip)
-        button.widthAnchor.constraint(equalToConstant: 26).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 30).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 30).isActive = true
         return button
     }
 
@@ -463,8 +393,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
 
     @objc func openFromField(_ sender: Any?) { openAddress(address.stringValue) }
 
-    func openAddress(_ value: String) {
+    func openAddress(_ value: String, discardConfirmed: Bool = false) {
+        guard window.attachedSheet == nil else { return }
+        if let editor = canvas.editor, editor.isDirty, !discardConfirmed {
+            guard (try? ImageSource.parse(value)) != nil else {
+                stateLabel.stringValue = "Enter a valid image path or URL. Your edits are still here."
+                return
+            }
+            confirmDiscard { [weak self] proceed in
+                if proceed { self?.openAddress(value, discardConfirmed: true) }
+                else { self?.address.stringValue = self?.source?.address ?? value }
+            }
+            return
+        }
         loader?.cancel()
+        canvas.document.markup.editor = nil
+        window.isDocumentEdited = false
+        updateEditorUI()
         let id = UUID()
         loadID = id
         address.stringValue = value
@@ -496,10 +441,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
                     self.stateLabel.toolTip = parsed.address
                     self.stateLabel.textColor = Palette.text
                     let bytes = ByteCountFormatter.string(fromByteCount: Int64(loaded.data.count), countStyle: .file)
-                    self.metadata.stringValue = "\(loaded.width) × \(loaded.height)  ·  \(loaded.format)  ·  \(bytes)"
+                    self.originalMetadata = "\(loaded.width) × \(loaded.height)  ·  \(loaded.format)  ·  \(bytes)"
+                    self.metadata.stringValue = self.originalMetadata
                     self.revealButton.isHidden = !parsed.isLocal
                     self.window.title = "\(parsed.name) — Fast Image Viewer"
                     self.window.representedURL = parsed.isLocal ? parsed.url : nil
+                    do {
+                        let editor = try ImageEditor(data: loaded.data, maxDimension: max(loaded.width, loaded.height))
+                        self.canvas.beginEditing(editor)
+                        self.canvas.updateImageFrame()
+                    } catch {
+                        self.editHint.stringValue = "Viewing only: this image couldn’t be prepared for editing."
+                    }
                 case .failure(let error): self.showError(error)
                 }
             }
@@ -512,6 +465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
         stateLabel.textColor = .systemOrange
         stateLabel.toolTip = error.localizedDescription
         canvas.placeholder(title: "Let’s try another address.", detail: error.localizedDescription, isError: true)
+        updateEditorUI()
         window.title = "Fast Image Viewer"
         window.representedURL = nil
     }
@@ -523,7 +477,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.beginSheetModal(for: window) { [weak self] response in
-            if response == .OK, let url = panel.url { self?.openAddress(url.path) }
+            if response == .OK, let url = panel.url {
+                DispatchQueue.main.async { self?.openAddress(url.path) }
+            }
         }
     }
 
@@ -541,7 +497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
             loader = nil
             loadID = UUID()
             spinner.stopAnimation(nil)
-            canvas.placeholder(title: "An image, one paste away.", detail: "Paste a file path or image URL above, then press Return.")
+            canvas.placeholder(title: "Open an image to begin", detail: "Paste a path or URL above, or drop an image here.")
             stateLabel.stringValue = "Cancelled"
         } else { window.orderOut(nil) }
     }
@@ -571,16 +527,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
         clip.keyEquivalentModifierMask = [.command, .shift]
         menuItem(fileMenu, "Focus Address", #selector(focusAddress), "l")
         fileMenu.addItem(.separator())
+        menuItem(fileMenu, "Export Edited Copy…", #selector(exportEditedImage), "s")
+        fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         let fileItem = NSMenuItem(); fileItem.submenu = fileMenu; main.addItem(fileItem)
 
         let edit = NSMenu(title: "Edit")
-        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        menuItem(edit, "Undo", #selector(undoEdit), "z")
+        let redo = menuItem(edit, "Redo", #selector(redoEdit), "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
         edit.addItem(.separator())
         edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(.separator())
+        let copyImage = menuItem(edit, "Copy Image with Marks", #selector(copyEditedImage), "c")
+        copyImage.keyEquivalentModifierMask = [.command, .shift]
+        menuItem(edit, "Rotate Clockwise", #selector(rotateImage), "")
         let editItem = NSMenuItem(); editItem.submenu = edit; main.addItem(editItem)
 
         let view = NSMenu(title: "View")
@@ -636,7 +600,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
             shortcutAvailable = RegisterEventHotKey(shortcut.key, shortcut.modifiers, id, GetApplicationEventTarget(), 0, &hotKey) == noErr
         }
         shortcutLabel.stringValue = shortcut == .disabled ? "⌘ L  to focus address" :
-            (shortcutAvailable ? "\(shortcut.title)   Open clipboard from anywhere" : "Shortcut unavailable · change it in the app menu")
+            (shortcutAvailable ? "\(shortcut.title)   Open clipboard" : "Shortcut unavailable")
+        shortcutLabel.toolTip = "Open an image address from your clipboard, from any app. Change the shortcut in Fast Image Viewer → Global Shortcut."
         shortcutItems.forEach { $0.state = $0.tag == shortcut.rawValue ? .on : .off }
     }
 
@@ -649,12 +614,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
     @objc func showAbout(_ sender: Any?) {
         NSApp.orderFrontStandardAboutPanel(options: [
             .applicationName: "Fast Image Viewer",
-            .applicationVersion: "1.0",
+            .applicationVersion: "1.2",
             .credits: NSAttributedString(string: "Paste a path. See the image.\n\nThe global shortcut opens an image address from your clipboard.\nClosing the window keeps the shortcut active. Use ⌘Q to quit.")
         ])
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard canvas.editor?.isDirty == true else { return .terminateNow }
+        showWindow(nil)
+        confirmDiscard { sender.reply(toApplicationShouldTerminate: $0) }
+        return .terminateLater
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showWindow(nil); return true }
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
         if window == nil { makeWindow() }
