@@ -10,12 +10,12 @@ extension NSColor {
 }
 
 enum Palette {
-    static let background = NSColor(hex: 0x1A1C23)
-    static let surface = NSColor(hex: 0x23262F)
-    static let muted = NSColor(hex: 0xA0A4B5)
+    static let background = NSColor(hex: 0x1C1D22)
+    static let surface = NSColor(hex: 0x26272E)
+    static let muted = NSColor(hex: 0x9FA2AF)
     static let text = NSColor(hex: 0xF2F0F8)
     static let accent = NSColor(hex: 0xBCA9FF)
-    static let border = NSColor(hex: 0x363944)
+    static let border = NSColor(hex: 0x373941)
 }
 
 func label(_ text: String, size: CGFloat = 12, weight: NSFont.Weight = .regular,
@@ -52,10 +52,10 @@ final class ImageDocument: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(hex: 0x12141A).setFill()
+        NSColor(hex: 0x15161B).setFill()
         dirtyRect.fill()
         let spacing: CGFloat = 24
-        NSColor.white.withAlphaComponent(0.045).setFill()
+        NSColor.white.withAlphaComponent(0.035).setFill()
         for row in Int(floor(dirtyRect.minY / spacing))...Int(ceil(dirtyRect.maxY / spacing)) {
             for col in Int(floor(dirtyRect.minX / spacing))...Int(ceil(dirtyRect.maxX / spacing)) {
                 NSBezierPath(ovalIn: NSRect(x: CGFloat(col) * spacing, y: CGFloat(row) * spacing, width: 1, height: 1)).fill()
@@ -284,8 +284,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
     var window: NSWindow!
     let address = AddressField()
     let canvas = ImageCanvas(frame: .zero)
-    let stateLabel = label("Ready to open", size: 11, color: Palette.muted)
-    let metadata = label("LOCAL FILES & WEB IMAGES", size: 10, weight: .medium, color: Palette.muted)
+    let stateLabel = label("Fast Image Viewer", size: 11, color: Palette.muted)
+    let metadata = label("View, mark, and share an image", size: 10, weight: .medium, color: Palette.muted)
     let zoomLabel = label("100%", size: 11, weight: .medium, color: Palette.muted)
     let shortcutLabel = label("", size: 11, weight: .medium, color: Palette.muted)
     let openButton = ChromeButton(title: "Open", target: nil, action: nil)
@@ -294,6 +294,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
     let spinner = NSProgressIndicator()
     var zoomControls: [NSButton] = []
     let toolPicker = IconToolPicker()
+    let colorPicker = MarkColorPicker()
+    let activeToolLabel = label("Select", size: 12, weight: .semibold)
+    let toolKeyLabel = label("V", size: 10, weight: .medium, color: Palette.muted)
+    let toolOptions = NSStackView()
+    let toolSummary = label("Move marks · Pan image", size: 11, color: Palette.muted)
     let colorWell = NSColorWell()
     let strokePicker = NSPopUpButton()
     let textSizePicker = NSPopUpButton()
@@ -310,6 +315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
     var loader: ImageLoader?
     var loadID = UUID()
     var statusItem: NSStatusItem!
+    var statusMenu: NSMenu!
     var hotKey: EventHotKeyRef?
     var hotKeyHandler: EventHandlerRef?
     var keyMonitor: Any?
@@ -568,13 +574,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTe
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = symbol("photo", size: 15)
         statusItem.button?.image?.isTemplate = true
-        statusItem.button?.toolTip = "Fast Image Viewer"
+        statusItem.button?.toolTip = "Fast Image Viewer — click to open; right-click for menu"
+        statusItem.button?.setAccessibilityLabel("Fast Image Viewer")
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(statusItemClicked)
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         let menu = NSMenu()
         menuItem(menu, "Open from Clipboard", #selector(openClipboard), "")
         menuItem(menu, "Show Viewer", #selector(showWindow), "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Fast Image Viewer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
-        statusItem.menu = menu
+        statusMenu = menu
+    }
+
+    @objc func statusItemClicked(_ sender: NSStatusBarButton) {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            // Anchor to the actual click, including when a menu-bar manager moves the icon.
+            // A synthetic performClick can use the status item's original screen position.
+            let click = NSEvent.mouseLocation
+            let screen = NSScreen.screens.first { $0.frame.contains(click) } ?? sender.window?.screen
+            let barHeight = sender.window?.frame.height ?? NSStatusBar.system.thickness
+            let top = screen.map { $0.frame.maxY - barHeight } ?? click.y
+            sender.highlight(true)
+            defer { sender.highlight(false) }
+            statusMenu.popUp(positioning: nil,
+                             at: NSPoint(x: click.x - sender.bounds.width / 2, y: top - 4), in: nil)
+        } else {
+            showWindow(nil)
+        }
     }
 
     func installHotKeyHandler() {

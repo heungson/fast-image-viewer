@@ -19,6 +19,73 @@ enum MarkupTool: Int, CaseIterable {
     }
 }
 
+
+/// Cursor artwork uses screen points, so it stays the same size at every image zoom.
+private enum MarkupCursors {
+    static let pen: NSCursor = {
+        let size: CGFloat = 20
+        let scale = size / 32
+        let image = NSImage(size: NSSize(width: size, height: size), flipped: true) { _ in
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            let transform = NSAffineTransform()
+            transform.scale(by: scale); transform.concat()
+            // The nib is the hot spot. A white border keeps it visible on dark images.
+            let body = NSBezierPath()
+            body.move(to: NSPoint(x: 4, y: 27))
+            body.line(to: NSPoint(x: 7, y: 17))
+            body.line(to: NSPoint(x: 22, y: 2))
+            body.curve(to: NSPoint(x: 29, y: 9), controlPoint1: NSPoint(x: 25, y: -1), controlPoint2: NSPoint(x: 32, y: 6))
+            body.line(to: NSPoint(x: 14, y: 24)); body.close()
+            body.lineJoinStyle = .round
+            NSColor.white.setStroke(); body.lineWidth = 3; body.stroke()
+            NSColor.black.setFill(); body.fill()
+            let detail = NSBezierPath()
+            detail.move(to: NSPoint(x: 8, y: 18)); detail.line(to: NSPoint(x: 13, y: 23))
+            detail.move(to: NSPoint(x: 20, y: 5)); detail.line(to: NSPoint(x: 26, y: 11))
+            detail.move(to: NSPoint(x: 11, y: 19)); detail.line(to: NSPoint(x: 22, y: 8))
+            NSColor.white.setStroke(); detail.lineWidth = 1.2; detail.stroke()
+            return true
+        }
+        return NSCursor(image: image, hotSpot: NSPoint(x: 4 * scale, y: 27 * scale))
+    }()
+
+    static let shapes: [MarkupTool: NSCursor] = Dictionary(uniqueKeysWithValues:
+        [MarkupTool.arrow, .rectangle, .ellipse, .crop].map { tool in
+            let image = NSImage(size: NSSize(width: 32, height: 32), flipped: true) { _ in
+                let target = NSBezierPath()
+                target.move(to: NSPoint(x: 1, y: 7)); target.line(to: NSPoint(x: 13, y: 7))
+                target.move(to: NSPoint(x: 7, y: 1)); target.line(to: NSPoint(x: 7, y: 13))
+                target.lineCapStyle = .round
+                NSColor.white.setStroke(); target.lineWidth = 3.5; target.stroke()
+                NSColor.black.setStroke(); target.lineWidth = 1.5; target.stroke()
+                let badge = NSBezierPath(roundedRect: NSRect(x: 14, y: 14, width: 17, height: 17), xRadius: 4, yRadius: 4)
+                NSColor.white.setStroke(); badge.lineWidth = 2; badge.stroke()
+                NSColor.black.setFill(); badge.fill()
+                if let icon = NSImage(systemSymbolName: tool.symbolName, accessibilityDescription: nil) {
+                    let tinted = NSImage(size: icon.size, flipped: false) { rect in
+                        icon.draw(in: rect)
+                        NSColor.white.setFill(); rect.fill(using: .sourceAtop)
+                        return true
+                    }
+                    tinted.draw(in: NSRect(x: 16, y: 16, width: 13, height: 13), from: .zero,
+                                operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+                }
+                return true
+            }
+            return (tool, NSCursor(image: image, hotSpot: NSPoint(x: 7, y: 7)))
+        })
+
+    static func cursor(for tool: MarkupTool) -> NSCursor {
+        switch tool {
+        case .select: return .arrow
+        case .pen: return pen
+        case .text: return .iBeam
+        default: return shapes[tool] ?? .crosshair
+        }
+    }
+}
+
 struct ImageMark {
     let tool: MarkupTool
     var points: [CGPoint]
@@ -260,7 +327,9 @@ final class MarkupView: NSView {
         return active
     }
 
-    override func resetCursorRects() { addCursorRect(bounds, cursor: tool == .select ? .arrow : .crosshair) }
+    override func resetCursorRects() {
+        addCursorRect(visibleRect, cursor: editor == nil ? .arrow : MarkupCursors.cursor(for: tool))
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let editor = editor, let context = NSGraphicsContext.current?.cgContext else { return }
@@ -292,6 +361,7 @@ final class MarkupView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let editor = editor else { return }
         window?.makeFirstResponder(self)
+        MarkupCursors.cursor(for: tool).set()
         let p = point(event)
         start = p; draft = nil; originalMark = nil; selectedIndex = nil; cropRect = nil
         if tool == .select {
@@ -309,6 +379,7 @@ final class MarkupView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard let start = start else { return }
+        MarkupCursors.cursor(for: tool).set()
         let p = point(event)
         if tool == .crop {
             cropRect = CGRect(x: min(start.x, p.x), y: min(start.y, p.y), width: abs(start.x - p.x), height: abs(start.y - p.y))

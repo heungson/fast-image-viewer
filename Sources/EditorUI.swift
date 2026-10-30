@@ -23,29 +23,56 @@ extension AppDelegate {
         undoButton = iconButton("arrow.uturn.backward", action: #selector(undoEdit), tooltip: "Undo edit (⌘Z)")
         redoButton = iconButton("arrow.uturn.forward", action: #selector(redoEdit), tooltip: "Redo edit (⇧⌘Z)")
         let rotate = iconButton("rotate.right", action: #selector(rotateImage), tooltip: "Rotate 90° clockwise")
-        let copy = iconButton("doc.on.doc", action: #selector(copyEditedImage), tooltip: "Copy image with marks (⇧⌘C)")
         exportButton.toolTip = "Export an edited copy (⌘S)"
         configure(applyCropButton, action: #selector(applyCrop), prominent: true)
         configure(cancelCropButton, action: #selector(cancelCrop))
-        let spacer = NSView()
-        func separator() -> NSView {
-            let view = surfaceView(radius: 0, color: Palette.border, border: false)
-            view.widthAnchor.constraint(equalToConstant: 1).isActive = true
-            view.heightAnchor.constraint(equalToConstant: 20).isActive = true
-            return view
-        }
-        let row = NSStackView(views: [toolPicker, separator(), colorWell, strokePicker, spacer, undoButton, redoButton, separator(), rotate, copy])
-        row.orientation = .horizontal; row.alignment = .centerY; row.spacing = 10
-        let card = surfaceView()
-        card.addSubview(row); row.translatesAutoresizingMaskIntoConstraints = false
+        colorPicker.selectedColor = colorWell.color
+        colorPicker.target = self; colorPicker.action = #selector(chooseMarkColor)
+        let divider = surfaceView(radius: 0, color: Palette.border, border: false)
+        let history = NSStackView(views: [undoButton, redoButton, rotate])
+        history.orientation = .vertical; history.spacing = 6
+        let rail = surfaceView(radius: 14)
+        [toolPicker, divider, history].forEach { rail.addSubview($0); $0.translatesAutoresizingMaskIntoConstraints = false }
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8), row.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -10),
-            row.topAnchor.constraint(equalTo: card.topAnchor, constant: 8), row.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8),
-            colorWell.widthAnchor.constraint(equalToConstant: 30), colorWell.heightAnchor.constraint(equalToConstant: 26),
-            strokePicker.widthAnchor.constraint(equalToConstant: 64), spacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 8)
+            toolPicker.centerXAnchor.constraint(equalTo: rail.centerXAnchor), toolPicker.topAnchor.constraint(equalTo: rail.topAnchor, constant: 6),
+            divider.topAnchor.constraint(greaterThanOrEqualTo: toolPicker.bottomAnchor, constant: 12),
+            divider.leadingAnchor.constraint(equalTo: rail.leadingAnchor, constant: 14), divider.trailingAnchor.constraint(equalTo: rail.trailingAnchor, constant: -14),
+            divider.heightAnchor.constraint(equalToConstant: 1), divider.bottomAnchor.constraint(equalTo: history.topAnchor, constant: -12),
+            history.centerXAnchor.constraint(equalTo: rail.centerXAnchor), history.bottomAnchor.constraint(equalTo: rail.bottomAnchor, constant: -12)
         ])
-        editControls = [toolPicker, colorWell, strokePicker, rotate, copy, exportButton]
+        editControls = [toolPicker, colorWell, colorPicker, strokePicker, rotate, exportButton]
+        return rail
+    }
+
+    func makeToolOptions() -> NSView {
+        let card = NSView()
+        let title = NSStackView(views: [activeToolLabel, toolKeyLabel])
+        title.orientation = .horizontal; title.spacing = 8; title.alignment = .centerY
+        toolKeyLabel.alignment = .center
+        toolKeyLabel.wantsLayer = true; toolKeyLabel.layer?.cornerRadius = 4
+        toolKeyLabel.layer?.borderWidth = 1; toolKeyLabel.layer?.borderColor = Palette.border.cgColor
+        toolOptions.orientation = .horizontal; toolOptions.alignment = .centerY; toolOptions.spacing = 10
+        [colorPicker, colorWell, strokePicker, textSizePicker].forEach(toolOptions.addArrangedSubview)
+        let cropActions = NSStackView(views: [cancelCropButton, applyCropButton])
+        cropActions.orientation = .horizontal; cropActions.alignment = .centerY; cropActions.spacing = 8
+        [title, toolOptions, toolSummary, cropActions].forEach { card.addSubview($0); $0.translatesAutoresizingMaskIntoConstraints = false }
+        NSLayoutConstraint.activate([
+            title.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 4), title.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            title.widthAnchor.constraint(equalToConstant: 90), toolKeyLabel.widthAnchor.constraint(equalToConstant: 20), toolKeyLabel.heightAnchor.constraint(equalToConstant: 18),
+            toolOptions.leadingAnchor.constraint(equalTo: title.trailingAnchor, constant: 16), toolOptions.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            toolSummary.leadingAnchor.constraint(equalTo: toolOptions.leadingAnchor), toolSummary.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            cropActions.trailingAnchor.constraint(equalTo: card.trailingAnchor), cropActions.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            colorWell.widthAnchor.constraint(equalToConstant: 28), colorWell.heightAnchor.constraint(equalToConstant: 26),
+            strokePicker.widthAnchor.constraint(equalToConstant: 68), textSizePicker.widthAnchor.constraint(equalToConstant: 110),
+            applyCropButton.widthAnchor.constraint(equalToConstant: 100), applyCropButton.heightAnchor.constraint(equalToConstant: 30),
+            cancelCropButton.widthAnchor.constraint(equalToConstant: 58), cancelCropButton.heightAnchor.constraint(equalToConstant: 30)
+        ])
         return card
+    }
+
+    @objc func chooseMarkColor(_ sender: MarkColorPicker) {
+        colorWell.color = sender.selectedColor
+        changeMarkStyle(sender)
     }
 
     func updateEditorUI() {
@@ -56,6 +83,12 @@ extension AppDelegate {
         exportButton.isEnabled = editor != nil && !isExporting
         let markup = canvas.document.markup
         toolPicker.selectedSegment = markup.tool.rawValue
+        activeToolLabel.stringValue = markup.tool.title
+        toolKeyLabel.stringValue = markup.tool.key.uppercased()
+        toolOptions.isHidden = editor == nil || markup.tool == .select || markup.tool == .crop
+        toolSummary.isHidden = !toolOptions.isHidden
+        toolSummary.stringValue = editor == nil ? "Open an image to start" : markup.tool == .crop ? "Drag to frame your crop" : "Move marks · Pan image"
+        strokePicker.isHidden = markup.tool == .text
         applyCropButton.isHidden = editor == nil || markup.tool != .crop
         cancelCropButton.isHidden = applyCropButton.isHidden
         applyCropButton.isEnabled = (markup.cropRect?.width ?? 0) >= 2 && (markup.cropRect?.height ?? 0) >= 2
@@ -78,6 +111,7 @@ extension AppDelegate {
 
     @objc func changeMarkStyle(_ sender: Any?) {
         canvas.document.markup.color = colorWell.color.usingColorSpace(.sRGB) ?? colorWell.color
+        colorPicker.selectedColor = colorWell.color
         canvas.document.markup.strokeSize = CGFloat(strokePicker.selectedItem?.tag ?? 4)
         canvas.document.markup.textSize = CGFloat(textSizePicker.selectedItem?.tag ?? 22)
     }

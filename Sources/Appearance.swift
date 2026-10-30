@@ -77,10 +77,10 @@ final class IconToolPicker: NSControl {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.backgroundColor = NSColor(hex: 0x17191F).cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
         layer?.cornerRadius = 10
         layer?.borderColor = Palette.border.withAlphaComponent(0.65).cgColor
-        layer?.borderWidth = 1
+        layer?.borderWidth = 0
         setAccessibilityRole(.group)
         setAccessibilityLabel("Markup tools")
         setAccessibilityElement(true)
@@ -95,11 +95,11 @@ final class IconToolPicker: NSControl {
         }
         setAccessibilityChildren(buttons)
         let row = NSStackView(views: buttons)
-        row.orientation = .horizontal; row.alignment = .centerY; row.spacing = 2
+        row.orientation = .vertical; row.alignment = .centerX; row.spacing = 4
         addSubview(row); row.translatesAutoresizingMaskIntoConstraints = false
         buttons.forEach {
-            $0.widthAnchor.constraint(equalToConstant: 32).isActive = true
-            $0.heightAnchor.constraint(equalToConstant: 32).isActive = true
+            $0.widthAnchor.constraint(equalToConstant: 36).isActive = true
+            $0.heightAnchor.constraint(equalToConstant: 36).isActive = true
         }
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4), row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
@@ -108,7 +108,7 @@ final class IconToolPicker: NSControl {
         refresh()
     }
     required init?(coder: NSCoder) { fatalError() }
-    override var intrinsicContentSize: NSSize { NSSize(width: 244, height: 40) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 44, height: 284) }
     private func refresh() {
         for button in buttons { button.state = button.tag == selectedSegment ? .on : .off; button.needsDisplay = true }
     }
@@ -143,4 +143,71 @@ final class BrandBadge: NSView {
         ])
     }
     required init?(coder: NSCoder) { fatalError() }
+}
+
+/// One-click colors supplement the native color well, which remains available for any custom color.
+final class MarkColorPicker: NSControl {
+    private let colors: [(String, NSColor)] = [
+        ("Coral", NSColor(srgbRed: 1, green: 0.25, blue: 0.3, alpha: 1)),
+        ("Amber", NSColor(hex: 0xFFCB66)), ("Mint", NSColor(hex: 0x67DDB5)),
+        ("Blue", NSColor(hex: 0x76ABFF)), ("White", NSColor(hex: 0xF5F6FA))
+    ]
+    private var buttons: [ColorSwatch] = []
+    var selectedColor = NSColor.systemRed { didSet { refresh() } }
+    override var isEnabled: Bool { didSet { buttons.forEach { $0.isEnabled = isEnabled }; refresh() } }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Quick mark colors")
+        setAccessibilityElement(true)
+        for (index, entry) in colors.enumerated() {
+            let button = ColorSwatch(frame: .zero)
+            button.color = entry.1; button.tag = index
+            button.target = self; button.action = #selector(choose)
+            button.setButtonType(.pushOnPushOff); button.isBordered = false
+            button.setAccessibilityLabel("\(entry.0) mark color"); button.toolTip = entry.0
+            button.setAccessibilityParent(self)
+            buttons.append(button)
+        }
+        setAccessibilityChildren(buttons)
+        let row = NSStackView(views: buttons)
+        row.orientation = .horizontal; row.spacing = 3
+        addSubview(row); row.translatesAutoresizingMaskIntoConstraints = false
+        buttons.forEach {
+            $0.widthAnchor.constraint(equalToConstant: 26).isActive = true
+            $0.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        }
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor), row.trailingAnchor.constraint(equalTo: trailingAnchor),
+            row.topAnchor.constraint(equalTo: topAnchor), row.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var intrinsicContentSize: NSSize { NSSize(width: 142, height: 28) }
+    private func refresh() {
+        let selected = selectedColor.usingColorSpace(.sRGB)
+        for (index, button) in buttons.enumerated() {
+            let color = colors[index].1
+            let matches = selected.map { abs($0.redComponent - color.redComponent) < 0.005 && abs($0.greenComponent - color.greenComponent) < 0.005 && abs($0.blueComponent - color.blueComponent) < 0.005 && abs($0.alphaComponent - 1) < 0.005 } ?? false
+            button.state = matches ? .on : .off; button.needsDisplay = true
+        }
+    }
+    @objc private func choose(_ sender: NSButton) {
+        selectedColor = colors[sender.tag].1
+        sendAction(action, to: target)
+    }
+}
+
+private final class ColorSwatch: NSButton {
+    var color = NSColor.white
+    override func draw(_ dirtyRect: NSRect) {
+        let circle = NSBezierPath(ovalIn: bounds.insetBy(dx: 5, dy: 6))
+        color.withAlphaComponent(isEnabled ? 1 : 0.25).setFill(); circle.fill()
+        NSColor.white.withAlphaComponent(0.15).setStroke(); circle.lineWidth = 1; circle.stroke()
+        if state == .on || window?.firstResponder === self {
+            (isEnabled ? Palette.text : Palette.muted).setStroke()
+            let ring = NSBezierPath(ovalIn: bounds.insetBy(dx: 2, dy: 3))
+            ring.lineWidth = 1.5; ring.stroke()
+        }
+    }
 }

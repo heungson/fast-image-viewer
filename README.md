@@ -1,6 +1,6 @@
 # Fast Image Viewer
 
-A small native macOS app for opening images from a pasted file path or a direct image URL. Built with Swift and AppKit; no Electron, web server, or third-party dependencies. The compact dark workspace groups markup tools above the image, with zoom and file information in the footer. Lavender selection states, focus outlines, and hover feedback use a consistent visual style. The transparency checkerboard appears only behind the image.
+A small native macOS app for opening images from a pasted file path or a direct image URL. Built with Swift and AppKit; no Electron, web server, or third-party dependencies. The dark workspace puts the image first: an icon tool rail on the left, document information and Copy/Export actions in the header, and zoom controls below the canvas. Contextual controls show quick color swatches, custom colors, line widths, text sizes, or crop actions for the active tool. Lavender selection states, focus outlines, and hover feedback use a consistent visual style. The transparency checkerboard appears only behind the image.
 
 ## Use it
 
@@ -37,7 +37,7 @@ Quoted paths and terminal-escaped spaces work. Web addresses must point directly
 | Command–W | Close the window and keep the shortcut active |
 | Command–Q | Quit the app and release the shortcut |
 
-Change or disable the global shortcut in **Fast Image Viewer → Global Shortcut**. Two alternate shortcuts are provided if another app uses the default. The menu bar photo icon also opens the viewer or clipboard image.
+Change or disable the global shortcut in **Fast Image Viewer → Global Shortcut**. Two alternate shortcuts are provided if another app uses the default. Left-click the menu bar photo icon to open the viewer directly. Right-click (or Control-click) it for the menu with **Open from Clipboard**, **Show Viewer**, and **Quit**.
 
 Closing the window keeps the app running for its global shortcut. After quitting or restarting your Mac, open the app again to enable the shortcut. This app does not change your login items or default image viewer.
 
@@ -45,7 +45,7 @@ Fit mode preserves the aspect ratio and avoids enlarging small images. At **100%
 
 ## Edit and mark an image
 
-The icon toolbar above the preview includes **Pen**, **Arrow**, **Box**, **Oval**, **Text**, and **Crop**. Hover over an icon to see its name and keyboard shortcut. Pick a tool, then draw directly on the image. Set the color and line width before adding a mark. Text has a separate size control and appears where you click.
+The icon tool rail to the left of the preview includes **Pen**, **Arrow**, **Box**, **Oval**, **Text**, and **Crop**. Hover over an icon to see its name and keyboard shortcut. Pick a tool, then draw directly on the image. The cursor follows the active tool: a pen with its tip at the drawing point, an I-beam for text, or a precise target with an arrow, shape, or crop badge. Use a quick color swatch or the custom color well and set the line width before adding a mark. Text has a separate size control and appears where you click.
 
 **Select** lets you move or delete individual marks: click a mark, drag it to move it, or press Delete to remove it. Dragging empty space in Select mode pans a zoomed image. The tool keys V, P, A, R, O, T, and C work while the image canvas has focus; they do not interrupt typing an address or text label.
 
